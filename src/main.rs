@@ -1,17 +1,17 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 struct Transaction {
     #[serde(rename = "type")]
     category: TransactionCategory,
     #[serde(rename = "client")]
     client_id: u16,
     tx: u32,
-    amount: f32,
+    amount: Option<f32>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 enum TransactionCategory {
     Deposit,
@@ -39,10 +39,13 @@ impl Default for Client {
         }
     }
 }
-
+// 4 digit precision
+// map error
+// handle empty column csv, or wrong type
+// check tx or client id out of u16/u32
 // https://docs.rs/csv/1.1.6/csv/tutorial/index.html
 fn main() -> std::io::Result<()> {
-    let transactions = read_from_file("src/testSamples/input1.csv")?;
+    let transactions = read_from_file("src/testSamples/input2.csv")?;
     let mut clients: HashMap<u16, Client> = HashMap::new();
 
     println!("{:?}", transactions);
@@ -62,24 +65,51 @@ fn read_from_file(file_path: &str) -> Result<Vec<Transaction>, csv::Error> {
 }
 
 fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u16, Client>) {
+    let mut transactions_history: HashMap<u32, Transaction> = HashMap::new();
     for t in transactions {
+        // Get client of the transaction + initialize if it doesn't exists
         let client = clients.entry(t.client_id).or_default();
 
-        match t.category {
-            TransactionCategory::Deposit => deposit(t.amount, client),
-            TransactionCategory::Withdrawal => withdraw(t.amount, client),
-            _ => (),
+        if !client.locked {
+            match t.category {
+                TransactionCategory::Deposit => deposit(t.amount.unwrap(), client),
+                TransactionCategory::Withdrawal => withdraw(t.amount.unwrap(), client),
+                TransactionCategory::Dispute => dispute(t.tx, &transactions_history, client),
+                _ => (),
+            }
+            if let TransactionCategory::Deposit = t.category  {
+                transactions_history.insert(t.tx, t.to_owned());
+            }
         }
+
+        println!(" history {:?}", transactions_history);
     }
 }
 
 fn deposit(amount: f32, client: &mut Client) {
     client.available += amount;
-    client.total += amount
+    client.total += amount;
 }
 
 fn withdraw(amount: f32, client: &mut Client) {
     if amount < client.available {
-        client.available -= amount
+        client.available -= amount;
+        client.total -= amount;
+    }
+}
+
+fn dispute(
+    transaction_disputed_id: u32,
+    transactions_history: &HashMap<u32, Transaction>,
+    client: &mut Client,
+) {
+    if let Some(disputed) = transactions_history.get(&transaction_disputed_id) {
+        match disputed.category {
+            TransactionCategory::Deposit => {
+                client.available -= disputed.amount.unwrap();
+                client.held += disputed.amount.unwrap();
+            }
+            _ => (), // Not sure how to handle dispute on the other kind of transactions
+        }
     }
 }
