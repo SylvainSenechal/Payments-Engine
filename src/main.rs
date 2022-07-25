@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Deserialize, Clone, Debug)]
 struct Transaction {
@@ -43,9 +44,10 @@ impl Default for Client {
 // map error
 // handle empty column csv, or wrong type
 // check tx or client id out of u16/u32
+// handle double dispute / double resolve
 // https://docs.rs/csv/1.1.6/csv/tutorial/index.html
 fn main() -> std::io::Result<()> {
-    let transactions = read_from_file("src/testSamples/input2.csv")?;
+    let transactions = read_from_file("src/testSamples/input3.csv")?;
     let mut clients: HashMap<u16, Client> = HashMap::new();
 
     println!("{:?}", transactions);
@@ -66,6 +68,7 @@ fn read_from_file(file_path: &str) -> Result<Vec<Transaction>, csv::Error> {
 
 fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u16, Client>) {
     let mut transactions_history: HashMap<u32, Transaction> = HashMap::new();
+    let mut ongoing_disputes: HashSet<u32> = HashSet::new();
     for t in transactions {
         // Get client of the transaction + initialize if it doesn't exists
         let client = clients.entry(t.client_id).or_default();
@@ -74,10 +77,15 @@ fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u
             match t.category {
                 TransactionCategory::Deposit => deposit(t.amount.unwrap(), client),
                 TransactionCategory::Withdrawal => withdraw(t.amount.unwrap(), client),
-                TransactionCategory::Dispute => dispute(t.tx, &transactions_history, client),
+                TransactionCategory::Dispute => {
+                    dispute(t.tx, &transactions_history, &mut ongoing_disputes, client)
+                }
+                TransactionCategory::Resolve => {
+                    resolve(t.tx, &transactions_history, &mut ongoing_disputes, client)
+                }
                 _ => (),
             }
-            if let TransactionCategory::Deposit = t.category  {
+            if let TransactionCategory::Deposit = t.category {
                 transactions_history.insert(t.tx, t.to_owned());
             }
         }
@@ -101,15 +109,41 @@ fn withdraw(amount: f32, client: &mut Client) {
 fn dispute(
     transaction_disputed_id: u32,
     transactions_history: &HashMap<u32, Transaction>,
+    ongoing_disputes: &mut HashSet<u32>,
     client: &mut Client,
 ) {
     if let Some(disputed) = transactions_history.get(&transaction_disputed_id) {
         match disputed.category {
             TransactionCategory::Deposit => {
-                client.available -= disputed.amount.unwrap();
-                client.held += disputed.amount.unwrap();
+                // Can't dispute twice the same transaction
+                if !ongoing_disputes.contains(&disputed.tx) {
+                    client.available -= disputed.amount.unwrap();
+                    client.held += disputed.amount.unwrap();
+                    ongoing_disputes.insert(disputed.tx);
+                }
             }
             _ => (), // Not sure how to handle dispute on the other kind of transactions
+        }
+    }
+}
+
+fn resolve(
+    transaction_resolved_id: u32,
+    transactions_history: &HashMap<u32, Transaction>,
+    ongoing_disputes: &mut HashSet<u32>,
+    client: &mut Client,
+) {
+    if let Some(resolved) = transactions_history.get(&transaction_resolved_id) {
+        match resolved.category {
+            TransactionCategory::Deposit => {
+                // Can't resolve a transaction that isn't under dispute
+                if ongoing_disputes.contains(&resolved.tx) {
+                    client.available += resolved.amount.unwrap();
+                    client.held -= resolved.amount.unwrap();
+                    ongoing_disputes.remove(&resolved.tx);
+                }
+            }
+            _ => (),
         }
     }
 }
