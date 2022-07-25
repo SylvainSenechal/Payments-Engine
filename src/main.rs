@@ -47,7 +47,7 @@ impl Default for Client {
 // handle double dispute / double resolve
 // https://docs.rs/csv/1.1.6/csv/tutorial/index.html
 fn main() -> std::io::Result<()> {
-    let transactions = read_from_file("src/testSamples/input3.csv")?;
+    let transactions = read_from_file("src/testSamples/input4.csv")?;
     let mut clients: HashMap<u16, Client> = HashMap::new();
 
     println!("{:?}", transactions);
@@ -83,7 +83,9 @@ fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u
                 TransactionCategory::Resolve => {
                     resolve(t.tx, &transactions_history, &mut ongoing_disputes, client)
                 }
-                _ => (),
+                TransactionCategory::Chargeback => {
+                    charge_back(t.tx, &transactions_history, &mut ongoing_disputes, client)
+                }
             }
             if let TransactionCategory::Deposit = t.category {
                 transactions_history.insert(t.tx, t.to_owned());
@@ -113,6 +115,7 @@ fn dispute(
     client: &mut Client,
 ) {
     if let Some(disputed) = transactions_history.get(&transaction_disputed_id) {
+        // check ongoing dispute first ?
         match disputed.category {
             TransactionCategory::Deposit => {
                 // Can't dispute twice the same transaction
@@ -141,6 +144,27 @@ fn resolve(
                     client.available += resolved.amount.unwrap();
                     client.held -= resolved.amount.unwrap();
                     ongoing_disputes.remove(&resolved.tx);
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+fn charge_back(
+    transaction_charged_back_id: u32,
+    transactions_history: &HashMap<u32, Transaction>,
+    ongoing_disputes: &mut HashSet<u32>,
+    client: &mut Client,
+) {
+    if let Some(charged_back) = transactions_history.get(&transaction_charged_back_id) {
+        match charged_back.category {
+            TransactionCategory::Deposit => {
+                if ongoing_disputes.contains(&charged_back.tx) {
+                    client.held -= charged_back.amount.unwrap();
+                    client.total -= charged_back.amount.unwrap();
+                    client.locked = true;
+                    ongoing_disputes.remove(&charged_back.tx);
                 }
             }
             _ => (),
