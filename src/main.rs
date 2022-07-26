@@ -2,6 +2,9 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Write;
+use std::env;
+use std::error::Error;
+
 
 #[derive(Deserialize, Clone, Debug)]
 struct Transaction {
@@ -10,7 +13,7 @@ struct Transaction {
     #[serde(rename = "client")]
     client_id: u16,
     tx: u32,
-    amount: Option<f32>,
+    amount: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -25,9 +28,9 @@ enum TransactionCategory {
 
 #[derive(Debug)]
 struct Client {
-    available: f32,
-    held: f32,
-    total: f32,
+    available: f64,
+    held: f64,
+    total: f64,
     locked: bool,
 }
 
@@ -42,24 +45,30 @@ impl Default for Client {
     }
 }
 
-// 4 digit precision voir {:4} ?
 // map error
 // handle empty column csv, or wrong type
 // check tx or client id out of u16/u32
-// handle double dispute / double resolve
-// https://docs.rs/csv/1.1.6/csv/tutorial/index.html
-// voir macro, errors, ?, sync/send, trait
-fn main() -> std::io::Result<()> {
-    let transactions = read_from_file("src/testSamples/input4.csv")?;
+// voir macro, errors, ? conversion des errors type, sync/send, trait, to_owned, borrowed vs owned, dyn
+fn main() -> Result<(), Box<dyn Error>> { // todo : revoir ce type de result
+    // let transactions = get_transactions_from_file("src/testSamples/input4.csv")?;
+    let transactions = get_transactions_from_args()?;
     let mut clients: HashMap<u16, Client> = HashMap::new();
 
-    process_transactions(&transactions, &mut clients);
-    write_clients_state(clients)?;
+    process_transactions(&transactions, &mut clients)?;
+    write_clients_state(&clients)?;
+
+    println!("{:?}", transactions);
+    println!("{:?}", clients);
 
     Ok(())
 }
 
-fn read_from_file(file_path: &str) -> Result<Vec<Transaction>, csv::Error> {
+fn get_transactions_from_args() -> Result<Vec<Transaction>, csv::Error> {
+    let file_path = env::args().nth(1).expect("Please provide the csv file path as the first argument");
+    get_transactions_from_file(&file_path)
+}
+
+fn get_transactions_from_file(file_path: &str) -> Result<Vec<Transaction>, csv::Error> {
     let mut rdr = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_path(file_path)?;
@@ -68,36 +77,38 @@ fn read_from_file(file_path: &str) -> Result<Vec<Transaction>, csv::Error> {
         .collect::<Result<Vec<Transaction>, csv::Error>>()
 }
 
-fn write_clients_state(clients: HashMap<u16, Client>) -> Result<(), std::io::Error> {
-    // see https://nnethercote.github.io/perf-book/io.html
+fn write_clients_state(clients: &HashMap<u16, Client>) -> Result<(), std::io::Error> {
+    // See https://nnethercote.github.io/perf-book/io.html
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
     writeln!(lock, "client,available,held,total,locked")?;
     for (client_id, client) in clients {
         writeln!(
             lock,
-            "{},{},{},{},{}",
+            "{},{:.4},{:.4},{:.4},{}",
             client_id, client.available, client.held, client.total, client.locked
         )?;
     }
     Ok(())
 }
 
-fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u16, Client>) {
+fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u16, Client>) -> Result<(), String> {
     let mut transactions_history: HashMap<u32, Transaction> = HashMap::new();
     let mut ongoing_disputes: HashSet<u32> = HashSet::new();
-    for t in transactions {
-        // Get client of the transaction + initialize if it doesn't exists
+    for (csv_line, t) in transactions.iter().enumerate() {
+        // Get client of the transaction, or initialize if it doesn't exists
         let client = clients.entry(t.client_id).or_default();
 
         if !client.locked {
             match t.category {
                 TransactionCategory::Deposit => {
-                    deposit(t.amount.unwrap(), client);
+                    let amount = t.amount.expect(&format!("Incorrect csv row : {}. You should provide an amount for a deposit transaction", csv_line + 1));
+                    deposit(amount, client)?;
                     transactions_history.insert(t.tx, t.to_owned());
                 }
                 TransactionCategory::Withdrawal => {
-                    if withdraw(t.amount.unwrap(), client) == true {
+                    let amount = t.amount.expect(&format!("Incorrect csv row : {}. You should provide an amount for a withdraw transaction", csv_line + 1));
+                    if withdraw(amount, client)? == true {
                         transactions_history.insert(t.tx, t.to_owned());
                     }
                 }
@@ -113,20 +124,29 @@ fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u
             }
         }
     }
+    
+    Ok(())
 }
 
-fn deposit(amount: f32, client: &mut Client) {
+fn deposit(amount: f64, client: &mut Client) -> Result<(), &str> {
+    if amount < f64::MIN_POSITIVE {
+        return Err("Cannot deposit a negative amount")
+    }
     client.available += amount;
     client.total += amount;
+    Ok(())
 }
 
-fn withdraw(amount: f32, client: &mut Client) -> bool {
+fn withdraw(amount: f64, client: &mut Client) -> Result<bool, &str> {
+    if amount < f64::MIN_POSITIVE {
+        return Err("Cannot withdraw a negative amount")
+    }
     if amount < client.available {
         client.available -= amount;
         client.total -= amount;
-        return true;
+        return Ok(true);
     }
-    return false;
+    return Ok(false);
 }
 
 fn dispute(
@@ -141,8 +161,9 @@ fn dispute(
         if let Some(disputed) = transactions_history.get(&transaction_disputed_id) {
             match disputed.category {
                 TransactionCategory::Deposit => {
-                    client.available -= disputed.amount.unwrap();
-                    client.held += disputed.amount.unwrap();
+                    let amount = disputed.amount.expect(&format!("The amount of the disputed transaction number {} was not provided", disputed.tx));
+                    client.available -= amount;
+                    client.held += amount;
                     ongoing_disputes.insert(disputed.tx);
                 }
                 _ => (), // Not sure how to handle dispute on the other kind of transactions
@@ -162,8 +183,9 @@ fn resolve(
         if let Some(resolved) = transactions_history.get(&transaction_resolved_id) {
             match resolved.category {
                 TransactionCategory::Deposit => {
-                    client.available += resolved.amount.unwrap();
-                    client.held -= resolved.amount.unwrap();
+                    let amount = resolved.amount.expect(&format!("The amount of the resolved transaction number {} was not provided", resolved.tx));
+                    client.available += amount;
+                    client.held -= amount;
                     ongoing_disputes.remove(&resolved.tx);
                 }
                 _ => (),
@@ -182,8 +204,9 @@ fn charge_back(
         if let Some(charged_back) = transactions_history.get(&transaction_charged_back_id) {
             match charged_back.category {
                 TransactionCategory::Deposit => {
-                    client.held -= charged_back.amount.unwrap();
-                    client.total -= charged_back.amount.unwrap();
+                    let amount = charged_back.amount.expect(&format!("The amount of the charged back transaction number {} was not provided", charged_back.tx));
+                    client.held -= amount;
+                    client.total -= amount;
                     client.locked = true;
                     ongoing_disputes.remove(&charged_back.tx);
                 }
