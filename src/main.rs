@@ -129,6 +129,9 @@ fn deposit(amount: f64, client: &mut Client) -> Result<(), &str> {
     }
     client.available += amount;
     client.total += amount;
+    if client.total > f64::MAX {
+        return Err("You are getting way too rich");
+    }
     Ok(())
 }
 
@@ -240,6 +243,13 @@ mod tests {
     #[should_panic]
     fn invalid_input_transaction_id() {
         get_transactions_from_file("src/testSamples/invalidTransactionID.csv").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn too_rich_client() {
+        let transactions = get_transactions_from_file("src/testSamples/tooRichClient.csv").unwrap();
+        process_transactions(&transactions, &mut HashMap::new()).unwrap();
     }
 
     #[test]
