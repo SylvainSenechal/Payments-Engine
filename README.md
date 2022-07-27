@@ -8,6 +8,4 @@ Run with ```cargo run -- src/testSamples/providedExample.csv > accounts.csv```
 
 - Disputes, Resolves and Chargebacks only deals with Deposits, maybe we could've done something for the withdraws ?
 
-- Using very, very large amount like 10 at the power of 400, will return "inf" amount
-
 - More tests are needed around floating precisions, and on large files > 1GB
