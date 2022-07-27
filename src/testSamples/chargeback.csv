@@ -18,7 +18,3 @@ resolve, 1, 1,
 resolve, 1, 1,
 dispute, 1, 1,
 chargeback, 1, 1,
-deposit, 1, 16, 1.0
-deposit, 1, 17, 1.0
-deposit, 1, 18, 100.0
-deposit, 2, 19, 100.0432

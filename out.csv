@@ -1,5 +1,0 @@
-client,available,held,total,locked
-1,1.0000,0.0000,1.0000,false
-2,2.0000,0.0000,2.0000,false
-[Transaction { category: Deposit, client_id: 1, tx: 1, amount: Some(-1.0) }, Transaction { category: Deposit, client_id: 2, tx: 2, amount: Some(2.0) }, Transaction { category: Deposit, client_id: 1, tx: 3, amount: Some(2.0) }, Transaction { category: Withdrawal, client_id: 1, tx: 4, amount: Some(1.5) }, Transaction { category: Withdrawal, client_id: 2, tx: 5, amount: Some(3.0) }]
-{1: Client { available: 1.0, held: 0.0, total: 1.0, locked: false }, 2: Client { available: 2.0, held: 0.0, total: 2.0, locked: false }}

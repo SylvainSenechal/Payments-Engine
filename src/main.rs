@@ -1,10 +1,9 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Write;
 use std::env;
 use std::error::Error;
-
+use std::io::Write;
 
 #[derive(Deserialize, Clone, Debug)]
 struct Transaction {
@@ -45,26 +44,19 @@ impl Default for Client {
     }
 }
 
-// map error
-// handle empty column csv, or wrong type
-// check tx or client id out of u16/u32
-// voir macro, errors, ? conversion des errors type, sync/send, trait, to_owned, borrowed vs owned, dyn
-fn main() -> Result<(), Box<dyn Error>> { // todo : revoir ce type de result
-    // let transactions = get_transactions_from_file("src/testSamples/input4.csv")?;
+fn main() -> Result<(), Box<dyn Error>> {
     let transactions = get_transactions_from_args()?;
     let mut clients: HashMap<u16, Client> = HashMap::new();
-
     process_transactions(&transactions, &mut clients)?;
     write_clients_state(&clients)?;
-
-    println!("{:?}", transactions);
-    println!("{:?}", clients);
 
     Ok(())
 }
 
 fn get_transactions_from_args() -> Result<Vec<Transaction>, csv::Error> {
-    let file_path = env::args().nth(1).expect("Please provide the csv file path as the first argument");
+    let file_path = env::args()
+        .nth(1)
+        .expect("Please provide the csv file path as the first argument");
     get_transactions_from_file(&file_path)
 }
 
@@ -92,7 +84,10 @@ fn write_clients_state(clients: &HashMap<u16, Client>) -> Result<(), std::io::Er
     Ok(())
 }
 
-fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u16, Client>) -> Result<(), String> {
+fn process_transactions(
+    transactions: &Vec<Transaction>,
+    clients: &mut HashMap<u16, Client>,
+) -> Result<(), String> {
     let mut transactions_history: HashMap<u32, Transaction> = HashMap::new();
     let mut ongoing_disputes: HashSet<u32> = HashSet::new();
     for (csv_line, t) in transactions.iter().enumerate() {
@@ -124,13 +119,13 @@ fn process_transactions(transactions: &Vec<Transaction>, clients: &mut HashMap<u
             }
         }
     }
-    
+
     Ok(())
 }
 
 fn deposit(amount: f64, client: &mut Client) -> Result<(), &str> {
     if amount < f64::MIN_POSITIVE {
-        return Err("Cannot deposit a negative amount")
+        return Err("Cannot deposit a negative amount");
     }
     client.available += amount;
     client.total += amount;
@@ -139,7 +134,7 @@ fn deposit(amount: f64, client: &mut Client) -> Result<(), &str> {
 
 fn withdraw(amount: f64, client: &mut Client) -> Result<bool, &str> {
     if amount < f64::MIN_POSITIVE {
-        return Err("Cannot withdraw a negative amount")
+        return Err("Cannot withdraw a negative amount");
     }
     if amount < client.available {
         client.available -= amount;
@@ -161,7 +156,10 @@ fn dispute(
         if let Some(disputed) = transactions_history.get(&transaction_disputed_id) {
             match disputed.category {
                 TransactionCategory::Deposit => {
-                    let amount = disputed.amount.expect(&format!("The amount of the disputed transaction number {} was not provided", disputed.tx));
+                    let amount = disputed.amount.expect(&format!(
+                        "The amount of the disputed transaction number {} was not provided",
+                        disputed.tx
+                    ));
                     client.available -= amount;
                     client.held += amount;
                     ongoing_disputes.insert(disputed.tx);
@@ -183,7 +181,10 @@ fn resolve(
         if let Some(resolved) = transactions_history.get(&transaction_resolved_id) {
             match resolved.category {
                 TransactionCategory::Deposit => {
-                    let amount = resolved.amount.expect(&format!("The amount of the resolved transaction number {} was not provided", resolved.tx));
+                    let amount = resolved.amount.expect(&format!(
+                        "The amount of the resolved transaction number {} was not provided",
+                        resolved.tx
+                    ));
                     client.available += amount;
                     client.held -= amount;
                     ongoing_disputes.remove(&resolved.tx);
@@ -204,7 +205,10 @@ fn charge_back(
         if let Some(charged_back) = transactions_history.get(&transaction_charged_back_id) {
             match charged_back.category {
                 TransactionCategory::Deposit => {
-                    let amount = charged_back.amount.expect(&format!("The amount of the charged back transaction number {} was not provided", charged_back.tx));
+                    let amount = charged_back.amount.expect(&format!(
+                        "The amount of the charged back transaction number {} was not provided",
+                        charged_back.tx
+                    ));
                     client.held -= amount;
                     client.total -= amount;
                     client.locked = true;
@@ -213,5 +217,140 @@ fn charge_back(
                 _ => (),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_amount_type() {
+        get_transactions_from_file("src/testSamples/invalidAmountType.csv").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_client_id() {
+        get_transactions_from_file("src/testSamples/invalidClientID.csv").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_transaction_id() {
+        get_transactions_from_file("src/testSamples/invalidTransactionID.csv").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_unprovided_deposit_amount() {
+        let transactions =
+            get_transactions_from_file("src/testSamples/unprovidedAmount.csv").unwrap();
+        process_transactions(&transactions, &mut HashMap::new()).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_negative_deposit() {
+        let transactions =
+            get_transactions_from_file("src/testSamples/negativeDeposit.csv").unwrap();
+        process_transactions(&transactions, &mut HashMap::new()).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_input_negative_withdraw() {
+        let transactions =
+            get_transactions_from_file("src/testSamples/negativeWithdraw.csv").unwrap();
+        process_transactions(&transactions, &mut HashMap::new()).unwrap();
+    }
+
+    #[test]
+    fn provided_example() {
+        let transactions =
+            get_transactions_from_file("src/testSamples/providedExample.csv").unwrap();
+        let mut clients: HashMap<u16, Client> = HashMap::new();
+        process_transactions(&transactions, &mut clients).unwrap();
+
+        assert_eq!(clients.get(&1).unwrap().available, 1.5);
+        assert_eq!(clients.get(&1).unwrap().held, 0.0);
+        assert_eq!(clients.get(&1).unwrap().total, 1.5);
+        assert_eq!(clients.get(&1).unwrap().locked, false);
+
+        assert_eq!(clients.get(&2).unwrap().available, 2.0);
+        assert_eq!(clients.get(&2).unwrap().held, 0.0);
+        assert_eq!(clients.get(&2).unwrap().total, 2.0);
+        assert_eq!(clients.get(&2).unwrap().locked, false);
+    }
+
+    #[test]
+    fn handle_dispute() {
+        let transactions = get_transactions_from_file("src/testSamples/dispute.csv").unwrap();
+        let mut clients: HashMap<u16, Client> = HashMap::new();
+        process_transactions(&transactions, &mut clients).unwrap();
+
+        assert_eq!(clients.get(&1).unwrap().available, 0.5);
+        assert_eq!(clients.get(&1).unwrap().held, 1.0);
+        assert_eq!(clients.get(&1).unwrap().total, 1.5);
+        assert_eq!(clients.get(&1).unwrap().locked, false);
+
+        assert_eq!(clients.get(&2).unwrap().available, 2.0);
+        assert_eq!(clients.get(&2).unwrap().held, 0.0);
+        assert_eq!(clients.get(&2).unwrap().total, 2.0);
+        assert_eq!(clients.get(&2).unwrap().locked, false);
+    }
+
+    #[test]
+    // Multiple dispute on the same transaction + dispute on a transaction that doesn't exists
+    fn handle_tricky_disputes() {
+        let transactions = get_transactions_from_file("src/testSamples/trickyDispute.csv").unwrap();
+        let mut clients: HashMap<u16, Client> = HashMap::new();
+        process_transactions(&transactions, &mut clients).unwrap();
+
+        assert_eq!(clients.get(&1).unwrap().available, 0.5);
+        assert_eq!(clients.get(&1).unwrap().held, 1.0);
+        assert_eq!(clients.get(&1).unwrap().total, 1.5);
+        assert_eq!(clients.get(&1).unwrap().locked, false);
+
+        assert_eq!(clients.get(&2).unwrap().available, 2.0);
+        assert_eq!(clients.get(&2).unwrap().held, 0.0);
+        assert_eq!(clients.get(&2).unwrap().total, 2.0);
+        assert_eq!(clients.get(&2).unwrap().locked, false);
+    }
+
+    #[test]
+    // Multiple resolves on the same dispute + resolve on a dispute that doesn't exists
+    fn handle_tricky_resolves() {
+        let transactions = get_transactions_from_file("src/testSamples/trickyResolve.csv").unwrap();
+        let mut clients: HashMap<u16, Client> = HashMap::new();
+        process_transactions(&transactions, &mut clients).unwrap();
+
+        assert_eq!(clients.get(&1).unwrap().available, 1.5);
+        assert_eq!(clients.get(&1).unwrap().held, 0.0);
+        assert_eq!(clients.get(&1).unwrap().total, 1.5);
+        assert_eq!(clients.get(&1).unwrap().locked, false);
+
+        assert_eq!(clients.get(&2).unwrap().available, 2.0);
+        assert_eq!(clients.get(&2).unwrap().held, 0.0);
+        assert_eq!(clients.get(&2).unwrap().total, 2.0);
+        assert_eq!(clients.get(&2).unwrap().locked, false);
+    }
+
+    #[test]
+    fn handle_charge_back() {
+        let transactions = get_transactions_from_file("src/testSamples/chargeback.csv").unwrap();
+        let mut clients: HashMap<u16, Client> = HashMap::new();
+        process_transactions(&transactions, &mut clients).unwrap();
+
+        assert_eq!(clients.get(&1).unwrap().available, 0.5);
+        assert_eq!(clients.get(&1).unwrap().held, 0.0);
+        assert_eq!(clients.get(&1).unwrap().total, 0.5);
+        assert_eq!(clients.get(&1).unwrap().locked, true);
+
+        assert_eq!(clients.get(&2).unwrap().available, 2.0);
+        assert_eq!(clients.get(&2).unwrap().held, 0.0);
+        assert_eq!(clients.get(&2).unwrap().total, 2.0);
+        assert_eq!(clients.get(&2).unwrap().locked, false);
     }
 }
