@@ -1,11 +1,13 @@
 # Payments-Engine
 
-If a Dispute, Resolve or Chargeback points towards a transaction that is not a Deposit, it is ignored.
+Run with ```cargo run -- src/testSamples/providedExample.csv > accounts.csv```
 
-We might need to use a crate that handles well decimal numbers to avoid rounding problems 
+# Discussions
 
-Handle better amount values that are larger than f64 bound
+- We might need to use a crate that handles well decimal numbers to avoid rounding problems 
 
-Using very, very large amount like 10 at the power of 400, will return "inf" amount
+- Disputes, Resolves and Chargebacks only deals with Deposits, maybe we could've done something for the withdraws ?
 
-More tests to be performed on the float precisions, tests on the ouput format
+- Using very, very large amount like 10 at the power of 400, will return "inf" amount
+
+- More tests are needed around floating precisions, and on large files > 1GB
