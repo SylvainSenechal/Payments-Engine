@@ -103,7 +103,7 @@ fn process_transactions(
                 }
                 TransactionCategory::Withdrawal => {
                     let amount = t.amount.expect(&format!("Incorrect csv row : {}. You should provide an amount for a withdraw transaction", csv_line + 1));
-                    if withdraw(amount, client)? == true {
+                    if withdraw(amount, client)? {
                         transactions_history.insert(t.tx, t.to_owned());
                     }
                 }
@@ -144,7 +144,7 @@ fn withdraw(amount: f64, client: &mut Client) -> Result<bool, &str> {
         client.total -= amount;
         return Ok(true);
     }
-    return Ok(false);
+    Ok(false)
 }
 
 fn dispute(
